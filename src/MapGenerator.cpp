@@ -103,6 +103,10 @@ namespace {
                 r = 240; g = 230; b = 180; break;
             case ::MapGenerator::TerrainType::SNOW:
                 r = 255; g = 255; b = 255; break;
+            case ::MapGenerator::TerrainType::WATER:
+                r = 30; g = 120; b = 180; break;
+            case ::MapGenerator::TerrainType::REEDS:
+                r = 180; g = 200; b = 100; break;
             default:
                 r = g = b = 0; break;
         }
@@ -185,7 +189,7 @@ bool MapGenerator::exportToPPM(const MapData& data, const std::string& filename,
                             
                             // 如果有装饰，混合颜色
                             TerrainType decoration = static_cast<TerrainType>(data.decorationMap[idx]);
-                            if (decoration != TerrainType::GRASS) { // 假设GRASS是默认无装饰
+                            if (decoration != TerrainType::GRASS && decoration != TerrainType::WATER) { // 假设GRASS是默认无装饰
                                 uint8_t dr, dg, db;
                                 getTerrainColor(decoration, dr, dg, db);
                                 // 简单混合
@@ -548,7 +552,9 @@ std::string MapGenerator::getTerrainName(TerrainType type) {
         {TerrainType::GRASS, "Grass"},
         {TerrainType::SAND, "Sand"},
         {TerrainType::CLAY, "Clay"},
-        {TerrainType::SNOW, "Snow"}
+        {TerrainType::SNOW, "Snow"},
+        {TerrainType::WATER, "Water"},
+        {TerrainType::REEDS, "Reeds"}
     };
     
     auto it = names.find(type);

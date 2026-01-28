@@ -98,7 +98,9 @@ void MapView::populateLegend(QVBoxLayout *layout)
         {MapGenerator::TerrainType::GRASS, "草地"},
         {MapGenerator::TerrainType::SAND, "沙地"},
         {MapGenerator::TerrainType::CLAY, "粘土"},
-        {MapGenerator::TerrainType::SNOW, "雪地"}
+        {MapGenerator::TerrainType::SNOW, "雪地"},
+        {MapGenerator::TerrainType::WATER, "水"},
+        {MapGenerator::TerrainType::REEDS, "芦苇"}
     };
 
     // 创建两列布局的容器
@@ -160,8 +162,8 @@ void MapView::populateLegend(QVBoxLayout *layout)
     rightLayout->addWidget(decorationTitle);
     rightLayout->addSpacing(10);
 
-    // 装饰类型 (14-25)
-    for (int i = 14; i <= 25; i++) {
+    // 装饰类型 (14-27)
+    for (int i = 14; i <= 27; i++) {
         auto type = static_cast<MapGenerator::TerrainType>(i);
         QString name = terrainTranslations.count(type) ?
                            terrainTranslations.at(type) :
@@ -600,6 +602,10 @@ QColor MapView::getTerrainColor(MapGenerator::TerrainType type) const
             return QColor(180, 160, 140);
         case MapGenerator::TerrainType::SNOW:
             return QColor(255, 255, 255);
+        case ::MapGenerator::TerrainType::WATER:
+            return QColor(30, 120, 180);
+        case ::MapGenerator::TerrainType::REEDS:
+            return QColor(80, 200, 100);
         default:
             return Qt::black;
     }

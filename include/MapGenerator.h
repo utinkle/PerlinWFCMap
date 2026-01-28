@@ -47,7 +47,9 @@ enum class TerrainType : uint32_t {
     GRASS           = 22,
     SAND            = 23,
     CLAY            = 24,
-    SNOW            = 25
+    SNOW            = 25,
+    WATER           = 26,
+    REEDS           = 27
 };
 
 // 气候类型

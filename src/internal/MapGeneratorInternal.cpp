@@ -8,12 +8,20 @@
 #include <memory>
 #include <random>
 #include <future>
-#include <iostream>
 #define _USE_MATH_DEFINES
 #include <cmath>
+#include <queue>
 
 namespace MapGenerator {
 namespace internal {
+
+struct RiverPoint {
+    uint32_t x;
+    uint32_t y;
+    float height;
+    bool isTributary;
+    uint32_t depth; // 递归深度
+};
 
 class MapGeneratorInternal::Impl {
 private:
@@ -213,6 +221,7 @@ public:
         addTreeDecorations(decorationMap, terrainMap, heightmap, config, params);
         addRockDecorations(decorationMap, terrainMap, heightmap, config, params);
         addVegetationDecorations(decorationMap, terrainMap, heightmap, config, params);
+        addReedsDecorations(decorationMap, terrainMap, heightmap, config, params);
     }
     
 private:
@@ -259,6 +268,8 @@ private:
                 params.lacunarity = 3.0f;
                 params.erosionIterations = 12;
                 break;
+            default:
+                break;
         }
         
         return params;
@@ -269,7 +280,7 @@ private:
         params.iterations = config.wfcIterations;
         params.entropyWeight = config.wfcEntropyWeight;
         params.enableBacktracking = config.wfcEnableBacktracking;
-        params.temperature = 1.0f;
+        params.temperature = config.temperature;
         params.useWeights = true;
         
         // 根据地图大小调整参数
@@ -320,6 +331,8 @@ private:
                 params.bushDensity = 0.4f;
                 params.grassDensity = 0.4f;
                 break;
+            default:
+                break;
         }
         
         return params;
@@ -339,6 +352,8 @@ private:
             case ClimateType::POLAR:
                 params.persistence *= 0.7f;
                 params.lacunarity *= 1.1f;
+                break;
+            default:
                 break;
         }
         
@@ -390,6 +405,8 @@ private:
             case ClimateType::POLAR:
                 params.tundraThreshold = 0.3f;
                 params.temperatureBias = -0.4f;
+                break;
+            default:
                 break;
         }
         
@@ -470,22 +487,21 @@ private:
             }
         } else if (height < config.mountainHeight) {
             // 山地
-            if (temperature < 0.3f) {
+            if (temperature < 0.2f) {
                 return TerrainType::SNOW_MOUNTAIN;
             } else {
                 return TerrainType::MOUNTAIN;
             }
         } else {
             // 高山
-            return TerrainType::SNOW_MOUNTAIN;
+            if (temperature < 0.1f) {
+                return TerrainType::SNOW_MOUNTAIN;
+            } else {
+                return TerrainType::MOUNTAIN;
+            }
         }
     }
-    
-    void applyAdvancedTerrainFeatures(HeightMap& heightmap, TileMap& terrainMap,
-                                     const MapConfig& config) {
 
-    }
-    
     void normalizeHeightmap(HeightMap& heightmap) {
         if (heightmap.empty()) return;
         
@@ -538,103 +554,375 @@ private:
             generateSingleRiver(terrainMap, heightmap, config, source.first, source.second, params);
         }
     }
-    
+
     void generateSingleRiver(TileMap& terrainMap, const HeightMap& heightmap,
-                           const MapConfig& config, uint32_t startX, uint32_t startY,
-                           const RiverParams& params) {
-        uint32_t x = startX;
-        uint32_t y = startY;
-        std::vector<std::pair<uint32_t, uint32_t>> riverPath;
-        
-        while (x > 0 && x < config.width - 1 && y > 0 && y < config.height - 1) {
-            riverPath.emplace_back(x, y);
-            
-            // 标记为河流
+                             const MapConfig& config, uint32_t startX, uint32_t startY,
+                             const RiverParams& params) {
+        std::vector<RiverPoint> mainRiver;
+        std::queue<RiverPoint> riverQueue;
+
+        // 初始化起点
+        RiverPoint startPoint{startX, startY, heightmap[startY * config.width + startX], false, 0};
+        riverQueue.push(startPoint);
+
+        std::mt19937 riverRng(m_seed + startX * 1000 + startY);
+        std::uniform_real_distribution<float> stopDist(0.0f, 1.0f);
+
+        // 使用迭代代替递归
+        while (!riverQueue.empty()) {
+            RiverPoint current = riverQueue.front();
+            riverQueue.pop();
+
+            // 检查递归深度限制
+            if (current.depth > 500) {
+                continue; // 防止过深的递归
+            }
+
+            uint32_t x = current.x;
+            uint32_t y = current.y;
+
+            // 检查边界
+            if (x == 0 || x >= config.width - 1 || y == 0 || y >= config.height - 1) {
+                continue;
+            }
+
             uint32_t idx = y * config.width + x;
+
+            // 保存当前点
+            mainRiver.push_back(current);
+
+            // 标记为河流
             TerrainType currentTerrain = static_cast<TerrainType>(terrainMap[idx]);
-            
             if (currentTerrain != TerrainType::DEEP_OCEAN &&
                 currentTerrain != TerrainType::SHALLOW_OCEAN) {
                 terrainMap[idx] = static_cast<uint32_t>(TerrainType::RIVER);
             }
-            
-            // 找到最低的邻居（水流方向）
-            float minHeight = heightmap[idx];
-            int bestDx = 0, bestDy = 0;
-            
-            for (int dy = -1; dy <= 1; dy++) {
-                for (int dx = -1; dx <= 1; dx++) {
-                    if (dx == 0 && dy == 0) continue;
-                    
-                    uint32_t nx = x + dx;
-                    uint32_t ny = y + dy;
-                    uint32_t nIdx = ny * config.width + nx;
-                    
-                    if (heightmap[nIdx] < minHeight) {
-                        minHeight = heightmap[nIdx];
-                        bestDx = dx;
-                        bestDy = dy;
-                    }
-                }
+
+            // 检查是否到达海洋
+            if (currentTerrain == TerrainType::DEEP_OCEAN ||
+                currentTerrain == TerrainType::SHALLOW_OCEAN) {
+                break; // 河流流入海洋，结束
             }
-            
-            // 如果找不到更低点，河流结束
-            if (bestDx == 0 && bestDy == 0) {
-                break;
-            }
-            
-            // 移动到下一个点
-            x += bestDx;
-            y += bestDy;
-            
-            // 如果流入海洋，结束
-            TerrainType nextTerrain = static_cast<TerrainType>(terrainMap[y * config.width + x]);
-            if (nextTerrain == TerrainType::DEEP_OCEAN ||
-                nextTerrain == TerrainType::SHALLOW_OCEAN) {
-                terrainMap[y * config.width + x] = static_cast<uint32_t>(TerrainType::RIVER);
-                break;
-            }
-            
+
             // 随机终止（模拟蒸发）
-            std::mt19937 riverRng(m_seed + x * 1000 + y);
-            std::uniform_real_distribution<float> stopDist(0.0f, 1.0f);
             if (stopDist(riverRng) < 0.01f) { // 1%概率终止
                 break;
             }
+
+            // 检查河流长度限制
+            if (mainRiver.size() > params.maxRiverLength) {
+                break;
+            }
+
+            // 找到最低的邻居（水流方向）
+            float minHeight = current.height;
+            int bestDx = 0, bestDy = 0;
+            bool foundLower = false;
+
+            // 优先检查直接邻居（4方向）
+            std::vector<std::pair<int, int>> directions = {
+                {0, -1}, {0, 1}, {-1, 0}, {1, 0}, // 上下左右
+                {-1, -1}, {-1, 1}, {1, -1}, {1, 1} // 对角线
+            };
+
+            for (const auto& [dx, dy] : directions) {
+                uint32_t nx = x + dx;
+                uint32_t ny = y + dy;
+
+                if (nx < config.width && ny < config.height) {
+                    uint32_t nIdx = ny * config.width + nx;
+                    float nHeight = heightmap[nIdx];
+
+                    if (nHeight < minHeight) {
+                        minHeight = nHeight;
+                        bestDx = dx;
+                        bestDy = dy;
+                        foundLower = true;
+                    }
+                }
+            }
+
+            // 如果没有找到更低点，尝试找相似高度点
+            if (!foundLower) {
+                float currentHeight = heightmap[idx];
+                for (const auto& [dx, dy] : directions) {
+                    uint32_t nx = x + dx;
+                    uint32_t ny = y + dy;
+
+                    if (nx < config.width && ny < config.height) {
+                        uint32_t nIdx = ny * config.width + nx;
+                        float nHeight = heightmap[nIdx];
+
+                        // 允许在平坦区域稍微向上游
+                        if (nHeight <= currentHeight + 0.01f && nHeight < minHeight + 0.05f) {
+                            minHeight = nHeight;
+                            bestDx = dx;
+                            bestDy = dy;
+                            foundLower = true;
+                        }
+                    }
+                }
+            }
+
+            // 如果找不到合适的下一点，河流结束
+            if (!foundLower || (bestDx == 0 && bestDy == 0)) {
+                // 尝试创建终点湖泊
+                if (mainRiver.size() > 10 && stopDist(riverRng) < 0.3f) {
+                    createTerminalLake(terrainMap, config, x, y, params);
+                }
+                break;
+            }
+
+            // 移动到下一个点
+            uint32_t nextX = x + bestDx;
+            uint32_t nextY = y + bestDy;
+            uint32_t nextIdx = nextY * config.width + nextX;
+
+            // 检查是否形成环
+            bool formsLoop = false;
+            for (const auto& point : mainRiver) {
+                if (point.x == nextX && point.y == nextY) {
+                    formsLoop = true;
+                    break;
+                }
+            }
+
+            if (formsLoop) {
+                break; // 避免形成循环
+            }
+
+            // 添加到队列继续处理
+            RiverPoint nextPoint{
+                nextX,
+                nextY,
+                heightmap[nextIdx],
+                current.isTributary,
+                current.depth + 1
+            };
+            riverQueue.push(nextPoint);
+
+            // 检查是否需要生成支流
+            if (params.tributaries && !current.isTributary &&
+                mainRiver.size() > 20 && mainRiver.size() % 30 == 0) {
+                generateTributaryFromPoint(terrainMap, heightmap, config,
+                                           x, y, current.height, params,
+                                           current.depth + 1);
+            }
         }
-        
-        // 生成支流
-        if (params.tributaries && riverPath.size() > 10) {
-            generateTributaries(terrainMap, heightmap, config, riverPath, params);
+
+        // 生成支流（如果主河流足够长）
+        if (params.tributaries && mainRiver.size() > 30) {
+            generateTributariesIterative(terrainMap, heightmap, config, mainRiver, params);
         }
     }
-    
-    void generateTributaries(TileMap& terrainMap, const HeightMap& heightmap,
-                           const MapConfig& config, 
-                           const std::vector<std::pair<uint32_t, uint32_t>>& mainRiver,
-                           const RiverParams& params) {
+
+    void generateTributariesIterative(TileMap& terrainMap, const HeightMap& heightmap,
+                                      const MapConfig& config,
+                                      const std::vector<RiverPoint>& mainRiver,
+                                      const RiverParams& params) {
         std::mt19937 tribRng(m_seed + 789);
-        std::uniform_real_distribution<float> angleDist(params.minTributaryAngle, 
-                                                       params.maxTributaryAngle);
-        std::uniform_int_distribution<uint32_t> pointDist(5, mainRiver.size() - 5);
-        
-        uint32_t numTributaries = std::min(3u, static_cast<uint32_t>(mainRiver.size() / 20));
-        
-        for (uint32_t i = 0; i < numTributaries; i++) {
-            uint32_t startPoint = pointDist(tribRng);
-            uint32_t startX = mainRiver[startPoint].first;
-            uint32_t startY = mainRiver[startPoint].second;
-            
-            // 从主河道偏移开始支流
+        std::uniform_real_distribution<float> angleDist(params.minTributaryAngle,
+                                                        params.maxTributaryAngle);
+        std::uniform_int_distribution<uint32_t> pointDist(10, mainRiver.size() - 10);
+        std::uniform_real_distribution<float> probDist(0.0f, 1.0f);
+
+        // 限制支流数量
+        uint32_t maxTributaries = std::min(5u, static_cast<uint32_t>(mainRiver.size() / 30));
+        uint32_t numTributaries = 0;
+
+        for (uint32_t i = 0; i < maxTributaries && numTributaries < 3; i++) {
+            uint32_t startPointIdx = pointDist(tribRng);
+
+            // 确保不在河流的开头或结尾附近
+            if (startPointIdx < 10 || startPointIdx > mainRiver.size() - 10) {
+                continue;
+            }
+
+            const RiverPoint& startPoint = mainRiver[startPointIdx];
+
+            // 50%概率在这个点生成支流
+            if (probDist(tribRng) > 0.5f) {
+                continue;
+            }
+
             float angle = angleDist(tribRng) * M_PI / 180.0f;
-            uint32_t offsetX = static_cast<uint32_t>(cos(angle) * 5);
-            uint32_t offsetY = static_cast<uint32_t>(sin(angle) * 5);
-            
-            uint32_t tribStartX = std::clamp(startX + offsetX, 1u, config.width - 2);
-            uint32_t tribStartY = std::clamp(startY + offsetY, 1u, config.height - 2);
-            
-            // 生成支流
-            generateSingleRiver(terrainMap, heightmap, config, tribStartX, tribStartY, params);
+
+            // 从主河道偏移开始支流
+            int offsetX = static_cast<int>(cos(angle) * 8);
+            int offsetY = static_cast<int>(sin(angle) * 8);
+
+            uint32_t tribStartX = std::clamp(static_cast<int>(startPoint.x) + offsetX,
+                                             1, static_cast<int>(config.width) - 2);
+            uint32_t tribStartY = std::clamp(static_cast<int>(startPoint.y) + offsetY,
+                                             1, static_cast<int>(config.height) - 2);
+
+            // 确保起点在陆地上
+            uint32_t startIdx = tribStartY * config.width + tribStartX;
+            TerrainType startTerrain = static_cast<TerrainType>(terrainMap[startIdx]);
+            if (startTerrain == TerrainType::DEEP_OCEAN ||
+                startTerrain == TerrainType::SHALLOW_OCEAN ||
+                startTerrain == TerrainType::LAKE) {
+                continue;
+            }
+
+            // 确保起点高度合适
+            float startHeight = heightmap[startIdx];
+            if (startHeight < params.minSourceHeight || startHeight > params.maxSourceHeight) {
+                continue;
+            }
+
+            // 使用非递归方式生成支流
+            generateTributaryFromPoint(terrainMap, heightmap, config,
+                                       tribStartX, tribStartY, startHeight, params, 0);
+
+            numTributaries++;
+        }
+    }
+
+    void generateTributaryFromPoint(TileMap& terrainMap, const HeightMap& heightmap,
+                                    const MapConfig& config, uint32_t startX, uint32_t startY,
+                                    float startHeight, const RiverParams& params, uint32_t depth) {
+        // 限制支流深度
+        if (depth > 3) { // 最多3级支流
+            return;
+        }
+
+        struct TributaryPoint {
+            uint32_t x;
+            uint32_t y;
+            uint32_t depth;
+        };
+
+        std::queue<TributaryPoint> tribQueue;
+        tribQueue.push({startX, startY, depth});
+
+        std::mt19937 localRng(m_seed + startX * 10000 + startY);
+        std::uniform_real_distribution<float> stopDist(0.0f, 1.0f);
+
+        while (!tribQueue.empty()) {
+            TributaryPoint current = tribQueue.front();
+            tribQueue.pop();
+
+            uint32_t x = current.x;
+            uint32_t y = current.y;
+
+            // 检查边界
+            if (x == 0 || x >= config.width - 1 || y == 0 || y >= config.height - 1) {
+                continue;
+            }
+
+            uint32_t idx = y * config.width + x;
+
+            // 标记为河流
+            TerrainType currentTerrain = static_cast<TerrainType>(terrainMap[idx]);
+            if (currentTerrain != TerrainType::DEEP_OCEAN &&
+                currentTerrain != TerrainType::SHALLOW_OCEAN &&
+                currentTerrain != TerrainType::LAKE) {
+                terrainMap[idx] = static_cast<uint32_t>(TerrainType::RIVER);
+            }
+
+            // 检查是否连接到主河流或海洋
+            bool connected = false;
+            for (int dy = -1; dy <= 1; dy++) {
+                for (int dx = -1; dx <= 1; dx++) {
+                    if (dx == 0 && dy == 0) continue;
+
+                    uint32_t nx = x + dx;
+                    uint32_t ny = y + dy;
+
+                    if (nx < config.width && ny < config.height) {
+                        uint32_t nIdx = ny * config.width + nx;
+                        TerrainType neighbor = static_cast<TerrainType>(terrainMap[nIdx]);
+
+                        if (neighbor == TerrainType::RIVER ||
+                            neighbor == TerrainType::DEEP_OCEAN ||
+                            neighbor == TerrainType::SHALLOW_OCEAN) {
+                            connected = true;
+                            break;
+                        }
+                    }
+                }
+                if (connected) break;
+            }
+
+            if (connected) {
+                break; // 支流已连接到水系
+            }
+
+            // 随机终止
+            if (stopDist(localRng) < 0.05f) { // 5%概率终止
+                break;
+            }
+
+            // 找到最低的邻居
+            float minHeight = heightmap[idx];
+            int bestDx = 0, bestDy = 0;
+
+            for (int dy = -1; dy <= 1; dy++) {
+                for (int dx = -1; dx <= 1; dx++) {
+                    if (dx == 0 && dy == 0) continue;
+
+                    uint32_t nx = x + dx;
+                    uint32_t ny = y + dy;
+
+                    if (nx < config.width && ny < config.height) {
+                        uint32_t nIdx = ny * config.width + nx;
+                        float nHeight = heightmap[nIdx];
+
+                        if (nHeight < minHeight) {
+                            minHeight = nHeight;
+                            bestDx = dx;
+                            bestDy = dy;
+                        }
+                    }
+                }
+            }
+
+            if (bestDx == 0 && bestDy == 0) {
+                break; // 找不到下坡路
+            }
+
+            // 移动到下一个点
+            uint32_t nextX = x + bestDx;
+            uint32_t nextY = y + bestDy;
+
+            // 检查递归深度
+            if (current.depth + 1 > depth + 10) { // 限制支流长度
+                break;
+            }
+
+            tribQueue.push({nextX, nextY, current.depth + 1});
+        }
+    }
+
+    void createTerminalLake(TileMap& terrainMap, const MapConfig& config,
+                            uint32_t centerX, uint32_t centerY, const RiverParams& params) {
+        std::mt19937 lakeRng(m_seed + centerX * 100 + centerY);
+        std::uniform_real_distribution<float> sizeDist(params.minLakeSize * 0.5f,
+                                                       params.maxLakeSize * 0.8f);
+
+        float lakeSize = sizeDist(lakeRng);
+
+        for (int dy = -static_cast<int>(lakeSize); dy <= static_cast<int>(lakeSize); dy++) {
+            for (int dx = -static_cast<int>(lakeSize); dx <= static_cast<int>(lakeSize); dx++) {
+                uint32_t x = centerX + dx;
+                uint32_t y = centerY + dy;
+
+                if (x < config.width && y < config.height) {
+                    float dist = sqrt(dx * dx + dy * dy);
+                    if (dist <= lakeSize) {
+                        uint32_t idx = y * config.width + x;
+                        TerrainType current = static_cast<TerrainType>(terrainMap[idx]);
+
+                        // 只覆盖陆地
+                        if (current != TerrainType::DEEP_OCEAN &&
+                            current != TerrainType::SHALLOW_OCEAN &&
+                            current != TerrainType::COAST) {
+                            terrainMap[idx] = static_cast<uint32_t>(TerrainType::LAKE);
+                        }
+                    }
+                }
+            }
         }
     }
     
@@ -673,36 +961,180 @@ private:
     }
     
     void generateLake(TileMap& terrainMap, const HeightMap& heightmap,
-                     const MapConfig& config, uint32_t centerX, uint32_t centerY,
-                     const RiverParams& params) {
+                      const MapConfig& config, uint32_t centerX, uint32_t centerY,
+                      const RiverParams& params) {
         std::mt19937 lakeShapeRng(m_seed + centerX * 100 + centerY);
         std::uniform_real_distribution<float> sizeDist(params.minLakeSize, params.maxLakeSize);
-        
-        float lakeSize = sizeDist(lakeShapeRng);
-        
-        for (int dy = -static_cast<int>(lakeSize); dy <= static_cast<int>(lakeSize); dy++) {
-            for (int dx = -static_cast<int>(lakeSize); dx <= static_cast<int>(lakeSize); dx++) {
+
+        float baseSize = sizeDist(lakeShapeRng);
+
+        // 使用噪声生成不规则的湖泊形状
+        std::uniform_real_distribution<float> noiseDist(0.0f, 1.0f);
+
+        // 生成随机参数用于形状变化
+        float irregularity = 0.3f + noiseDist(lakeShapeRng) * 0.4f; // 不规则度 0.3-0.7
+        float distortion = 0.2f + noiseDist(lakeShapeRng) * 0.3f;   // 扭曲度 0.2-0.5
+        int lobes = 5 + static_cast<int>(noiseDist(lakeShapeRng) * 5); // 5-10个瓣
+
+        // 湖泊类型：圆形、椭圆形、不规则形
+        enum LakeType { CIRCULAR, ELLIPTICAL, IRREGULAR };
+        LakeType lakeType = static_cast<LakeType>(static_cast<int>(noiseDist(lakeShapeRng) * 3));
+
+        for (int dy = -static_cast<int>(baseSize * 1.5f); dy <= static_cast<int>(baseSize * 1.5f); dy++) {
+            for (int dx = -static_cast<int>(baseSize * 1.5f); dx <= static_cast<int>(baseSize * 1.5f); dx++) {
                 uint32_t x = centerX + dx;
                 uint32_t y = centerY + dy;
-                
+
                 if (x < config.width && y < config.height) {
-                    // 椭圆形状
                     float dist = sqrt(dx * dx + dy * dy);
-                    if (dist <= lakeSize) {
+
+                    // 基本形状：圆形或椭圆形
+                    float normalizedDist;
+                    if (lakeType == ELLIPTICAL) {
+                        // 椭圆形：x和y方向有不同的半径
+                        float rx = baseSize * (0.8f + noiseDist(lakeShapeRng) * 0.4f);
+                        float ry = baseSize * (0.8f + noiseDist(lakeShapeRng) * 0.4f);
+                        normalizedDist = sqrt((dx*dx)/(rx*rx) + (dy*dy)/(ry*ry));
+                    } else {
+                        normalizedDist = dist / baseSize;
+                    }
+
+                    // 应用不规则性
+                    float angle = atan2(dy, dx);
+                    float noiseValue = 0.0f;
+
+                    switch (lakeType) {
+                    case CIRCULAR:
+                        // 圆形湖泊，带有轻微不规则
+                        noiseValue = (sin(angle * lobes) * 0.1f + 1.0f) * irregularity;
+                        break;
+
+                    case ELLIPTICAL:
+                        // 椭圆形湖泊，带有波纹边缘
+                        noiseValue = (sin(angle * 8 + dist * 0.2f) * 0.15f + 1.0f) * irregularity;
+                        break;
+
+                    case IRREGULAR:
+                        // 高度不规则的湖泊
+                        noiseValue = (sin(angle * lobes) * 0.2f +
+                                      sin(angle * lobes * 2 + dist * 0.3f) * 0.15f +
+                                      sin(dist * 0.5f) * 0.1f + 1.0f) * irregularity;
+                        break;
+                    }
+
+                    // 应用柏林噪声增加细节
+                    float nx = x / 10.0f;
+                    float ny = y / 10.0f;
+                    float perlinNoise = m_noiseGen->applyPerlinNoise(nx, ny) * 0.5f + 0.5f;
+                    noiseValue *= (0.7f + perlinNoise * 0.3f);
+
+                    // 添加随机扰动
+                    std::mt19937 localRng(m_seed + x * 1000 + y);
+                    std::uniform_real_distribution<float> localDist(0.0f, 1.0f);
+                    float randomDistortion = 1.0f + (localDist(localRng) - 0.5f) * distortion * 2.0f;
+
+                    // 最终距离计算
+                    float finalThreshold = 1.0f * noiseValue * randomDistortion;
+
+                    // 使用平滑过渡
+                    float alpha = 1.0f - smoothstep(finalThreshold - 0.3f, finalThreshold + 0.3f, normalizedDist);
+
+                    // 如果这个位置在湖泊内（使用概率而不是硬边界）
+                    if (alpha > 0.5f) {
                         uint32_t idx = y * config.width + x;
                         TerrainType current = static_cast<TerrainType>(terrainMap[idx]);
-                        
-                        // 只覆盖陆地
+
+                        // 只覆盖陆地，并且不是河流
                         if (current != TerrainType::DEEP_OCEAN &&
                             current != TerrainType::SHALLOW_OCEAN &&
                             current != TerrainType::COAST &&
                             current != TerrainType::RIVER) {
-                            terrainMap[idx] = static_cast<uint32_t>(TerrainType::LAKE);
+
+                            // 根据alpha值决定是湖泊还是浅滩
+                            if (alpha > 0.8f) {
+                                terrainMap[idx] = static_cast<uint32_t>(TerrainType::LAKE);
+                            } else {
+                                // 边缘区域可能是浅滩
+                                std::uniform_real_distribution<float> shallowDist(0.0f, 1.0f);
+                                if (shallowDist(localRng) < 0.3f) {
+                                    terrainMap[idx] = static_cast<uint32_t>(TerrainType::BEACH);
+                                } else {
+                                    terrainMap[idx] = static_cast<uint32_t>(TerrainType::LAKE);
+                                }
+                            }
+
+                            // 随机添加小岛
+                            if (alpha < 0.95f && localDist(localRng) < 0.02f) {
+                                terrainMap[idx] = static_cast<uint32_t>(TerrainType::PLAIN);
+                            }
                         }
                     }
                 }
             }
         }
+
+        // 后处理：平滑湖泊边界
+        // smoothLakeBoundary(terrainMap, config, centerX, centerY, baseSize);
+    }
+
+    void smoothLakeBoundary(TileMap& terrainMap, const MapConfig& config,
+                            uint32_t centerX, uint32_t centerY, float lakeSize) {
+        TileMap tempMap = terrainMap;
+
+        int radius = static_cast<int>(lakeSize) + 2;
+
+        for (int dy = -radius; dy <= radius; dy++) {
+            for (int dx = -radius; dx <= radius; dx++) {
+                uint32_t x = centerX + dx;
+                uint32_t y = centerY + dy;
+
+                if (x >= config.width || y >= config.height) continue;
+
+                uint32_t idx = y * config.width + x;
+                TerrainType current = static_cast<TerrainType>(terrainMap[idx]);
+
+                if (current == TerrainType::LAKE) {
+                    // 检查周围8个邻居
+                    int lakeNeighbors = 0;
+                    int totalNeighbors = 0;
+
+                    for (int ndy = -1; ndy <= 1; ndy++) {
+                        for (int ndx = -1; ndx <= 1; ndx++) {
+                            if (ndx == 0 && ndy == 0) continue;
+
+                            uint32_t nx = x + ndx;
+                            uint32_t ny = y + ndy;
+
+                            if (nx < config.width && ny < config.height) {
+                                totalNeighbors++;
+                                uint32_t nIdx = ny * config.width + nx;
+                                TerrainType neighbor = static_cast<TerrainType>(terrainMap[nIdx]);
+
+                                if (neighbor == TerrainType::LAKE) {
+                                    lakeNeighbors++;
+                                }
+                            }
+                        }
+                    }
+
+                    // 如果湖泊单元格被陆地包围太多，可能是孤岛
+                    if (lakeNeighbors < 3 && totalNeighbors > 0) {
+                        float lakeRatio = static_cast<float>(lakeNeighbors) / totalNeighbors;
+                        if (lakeRatio < 0.4f) {
+                            tempMap[idx] = static_cast<uint32_t>(TerrainType::PLAIN);
+                        }
+                    }
+                }
+            }
+        }
+
+        terrainMap = tempMap;
+    }
+
+    // 平滑步进函数（如果Utils中没有）
+    float smoothstep(float edge0, float edge1, float x) {
+        x = std::clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
+        return x * x * (3.0f - 2.0f * x);
     }
     
     void addTreeDecorations(TileMap& decorationMap, const TileMap& terrainMap,
@@ -835,6 +1267,237 @@ private:
                 }
             }
         }
+    }
+
+    void addReedsDecorations(TileMap& decorationMap,
+                            const TileMap& terrainMap,
+                            const HeightMap& heightmap,
+                            const MapConfig& config,
+                            const DecorationParams& params) {
+        std::mt19937 reedsRng(m_seed + 444);
+
+        // 第一遍：标记可能生成芦苇的位置
+        std::vector<bool> canHaveReeds(config.width * config.height, false);
+        std::vector<float> reedsProbabilities(config.width * config.height, 0.0f);
+
+        for (uint32_t y = 0; y < config.height; y++) {
+            for (uint32_t x = 0; x < config.width; x++) {
+                uint32_t idx = y * config.width + x;
+                TerrainType terrain = static_cast<TerrainType>(terrainMap[idx]);
+
+                if (shouldHaveReeds(terrain, static_cast<TerrainType>(decorationMap[idx]),
+                                    x, y, decorationMap, terrainMap, config)) {
+                    canHaveReeds[idx] = true;
+                    reedsProbabilities[idx] = calculateReedsProbability(terrain, heightmap[idx],
+                                                                        x, y, config);
+                }
+            }
+        }
+
+        // 第二遍：生成芦苇，考虑集群效果
+        for (uint32_t y = 0; y < config.height; y++) {
+            for (uint32_t x = 0; x < config.width; x++) {
+                uint32_t idx = y * config.width + x;
+
+                if (canHaveReeds[idx]) {
+                    float clusterBonus = calculateReedsClusterBonus(x, y, canHaveReeds,
+                                                                    reedsProbabilities, config);
+                    float finalProbability = reedsProbabilities[idx] * clusterBonus;
+
+                    std::uniform_real_distribution<float> reedsDist(0.0f, 1.0f);
+                    if (reedsDist(reedsRng) < finalProbability) {
+                        // 检查最小间距
+                        if (isValidReedsLocation(x, y, decorationMap, config, params)) {
+                            decorationMap[idx] = static_cast<uint32_t>(TerrainType::REEDS);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    float calculateReedsClusterBonus(uint32_t x, uint32_t y,
+                                    const std::vector<bool>& canHaveReeds,
+                                    const std::vector<float>& probabilities,
+                                    const MapConfig& config) {
+        // 检查周围是否有其他芦苇或可能的位置
+        int reedsNeighbors = 0;
+        int possibleNeighbors = 0;
+
+        for (int dy = -2; dy <= 2; dy++) {
+            for (int dx = -2; dx <= 2; dx++) {
+                if (dx == 0 && dy == 0) continue;
+
+                uint32_t nx = x + dx;
+                uint32_t ny = y + dy;
+
+                if (nx < config.width && ny < config.height) {
+                    uint32_t nIdx = ny * config.width + nx;
+
+                    if (canHaveReeds[nIdx]) {
+                        possibleNeighbors++;
+                        // 如果邻居已经有芦苇或概率很高
+                        if (probabilities[nIdx] > 0.5f) {
+                            reedsNeighbors++;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (possibleNeighbors == 0) return 1.0f;
+
+        // 集群奖励：周围有越多芦苇，当前位置也越可能有
+        float clusterRatio = static_cast<float>(reedsNeighbors) / possibleNeighbors;
+        return 1.0f + clusterRatio * 2.0f;  // 最多3倍概率
+    }
+
+    bool isValidReedsLocation(uint32_t x, uint32_t y,
+                            const TileMap& decorationMap,
+                            const MapConfig& config,
+                            const DecorationParams& params) {
+        // 检查最小间距
+        float minSpacing = params.minDecorationSpacing * 0.5f;  // 芦苇可以更密集
+
+        for (int dy = -static_cast<int>(minSpacing); dy <= static_cast<int>(minSpacing); dy++) {
+            for (int dx = -static_cast<int>(minSpacing); dx <= static_cast<int>(minSpacing); dx++) {
+                if (dx == 0 && dy == 0) continue;
+
+                uint32_t nx = x + dx;
+                uint32_t ny = y + dy;
+
+                if (nx < config.width && ny < config.height) {
+                    uint32_t nIdx = ny * config.width + nx;
+                    TerrainType neighborDeco = static_cast<TerrainType>(decorationMap[nIdx]);
+
+                    if (neighborDeco == TerrainType::REEDS) {
+                        // 已经有芦苇，太近了
+                        float distance = sqrt(dx*dx + dy*dy);
+                        if (distance < minSpacing) {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+
+        return true;
+    }
+
+    bool shouldHaveReeds(TerrainType terrain,
+                         TerrainType currentDecoration,
+                         uint32_t x, uint32_t y,
+                         const TileMap& decorationMap,
+                         const TileMap& terrainMap,
+                         const MapConfig& config) {
+        // 芦苇应该出现在：
+        // 1. 沼泽地形
+        // 2. 河流/湖泊岸边
+        // 3. 浅海区域
+
+        // 当前装饰已经是水，可以在上面加芦苇
+        if (currentDecoration == TerrainType::WATER) {
+            // 检查是否是岸边（有水也有陆地邻居）
+            return isWaterEdge(x, y, decorationMap, config);
+        }
+
+        // 沼泽地形
+        if (terrain == TerrainType::SWAMP) {
+            return true;
+        }
+
+        // 海岸线
+        if (terrain == TerrainType::COAST) {
+            return true;
+        }
+
+        return false;
+    }
+
+    float calculateReedsProbability(TerrainType terrain,
+                                    float height,
+                                    uint32_t x, uint32_t y,
+                                    const MapConfig& config) {
+        float baseProbability = 0.0f;
+
+        switch (terrain) {
+        case TerrainType::SWAMP:
+            baseProbability = 0.6f;  // 沼泽地芦苇概率高
+            break;
+        case TerrainType::RIVER:
+        case TerrainType::LAKE:
+            baseProbability = 0.4f;  // 河边湖边中等概率
+            break;
+        case TerrainType::COAST:
+            baseProbability = 0.3f;  // 海岸线较低概率
+            break;
+        case TerrainType::SHALLOW_OCEAN:
+            baseProbability = 0.2f;  // 浅海低概率
+            break;
+        default:
+            return 0.0f;
+        }
+
+        // 湿度影响（如果可获取）
+        float moisture = calculateMoisture(x, y, config, height);
+        baseProbability *= (0.5f + moisture * 0.5f);  // 湿度越高芦苇越多
+
+        // 高度影响：低洼地区芦苇更多
+        if (height < 0.4f) {
+            baseProbability *= 1.5f;
+        }
+
+        // 气候影响
+        switch (config.climate) {
+        case ClimateType::TROPICAL:
+            baseProbability *= 1.3f;  // 热带地区芦苇更多
+            break;
+        case ClimateType::ARID:
+            baseProbability *= 0.3f;  // 干旱地区芦苇很少
+            break;
+        default:
+            break;
+        }
+
+        return std::min(baseProbability, 0.8f);  // 上限80%
+    }
+
+    bool isWaterEdge(uint32_t x, uint32_t y,
+                                                 const TileMap& decorationMap,
+                                                 const MapConfig& config) {
+        // 检查当前水单元格是否有陆地邻居
+        uint32_t idx = y * config.width + x;
+
+        // 确保当前单元格是水
+        if (static_cast<TerrainType>(decorationMap[idx]) != TerrainType::WATER) {
+            return false;
+        }
+
+        int landNeighbors = 0;
+        int waterNeighbors = 0;
+
+        for (int dy = -1; dy <= 1; dy++) {
+            for (int dx = -1; dx <= 1; dx++) {
+                if (dx == 0 && dy == 0) continue;
+
+                uint32_t nx = x + dx;
+                uint32_t ny = y + dy;
+
+                if (nx < config.width && ny < config.height) {
+                    uint32_t nIdx = ny * config.width + nx;
+                    TerrainType neighborDeco = static_cast<TerrainType>(decorationMap[nIdx]);
+
+                    if (neighborDeco == TerrainType::WATER) {
+                        waterNeighbors++;
+                    } else {
+                        landNeighbors++;
+                    }
+                }
+            }
+        }
+
+        // 如果是水边（有陆地邻居）
+        return landNeighbors > 0;
     }
     
     bool isInTreeCluster(uint32_t x, uint32_t y, const TileMap& decorationMap,

@@ -19,18 +19,18 @@ private:
 public:
     PerlinNoiseImp(uint32_t seed = 12345) {
         std::mt19937 rng(seed);
-        
+
         // 初始化排列表
         for (int i = 0; i < 256; i++) {
             p[i] = i;
         }
-        
+
         // 洗牌
         for (int i = 255; i > 0; i--) {
             int j = rng() % (i + 1);
             std::swap(p[i], p[j]);
         }
-        
+
         // 复制到后半部分
         for (int i = 0; i < 256; i++) {
             p[256 + i] = p[i];
@@ -41,22 +41,22 @@ public:
         int X = (int)floor(x) & 255;
         int Y = (int)floor(y) & 255;
         int Z = (int)floor(z) & 255;
-        
+
         x -= floor(x);
         y -= floor(y);
         z -= floor(z);
-        
+
         float u = fade(x);
         float v = fade(y);
         float w = fade(z);
-        
+
         int A = p[X] + Y;
         int AA = p[A] + Z;
         int AB = p[A + 1] + Z;
         int B = p[X + 1] + Y;
         int BA = p[B] + Z;
         int BB = p[B + 1] + Z;
-        
+
         // 修正：使用正确的梯度计算
         return lerp(w, lerp(v, lerp(u, grad3(p[AA], x, y, z),
                                        grad3(p[BA], x - 1, y, z)),
@@ -488,6 +488,11 @@ public:
             val = floor(val / step) * step + step / 2.0f;
         }
     }
+
+    float applyPerlinNoise(float x, float y, float z) {
+        return m_perlin.noise(x, y, z);
+    }
+
     
 private:
     void generatePerlinNoise(HeightMap& result, uint32_t width, uint32_t height,
@@ -869,6 +874,11 @@ void NoiseGenerator::applySmoothing(HeightMap& heightmap, uint32_t width, uint32
 void NoiseGenerator::applyTerracing(HeightMap& heightmap, uint32_t width, uint32_t height,
                                    uint32_t levels) {
     m_impl->applyTerracing(heightmap, width, height, levels);
+}
+
+float NoiseGenerator::applyPerlinNoise(float x, float y, float z)
+{
+    return m_impl->applyPerlinNoise(x, y, z);
 }
 
 } // namespace internal

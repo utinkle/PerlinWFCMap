@@ -115,9 +115,9 @@ struct RiverParams {
     
     // 湖泊生成
     bool generateLakes = true;
-    float lakeProbability = 0.3f;
-    float minLakeSize = 3.0f;
-    float maxLakeSize = 20.0f;
+    float lakeProbability = 0.05f;
+    float minLakeSize = 10.0f;
+    float maxLakeSize = 40.0f;
 };
 
 // 生物群落参数

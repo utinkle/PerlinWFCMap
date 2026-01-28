@@ -139,7 +139,11 @@ private:
             // 沼泽相关
             {TerrainType::SWAMP, {TerrainType::BUSH, TerrainType::CLAY}},
             // 雪地相关
-            {TerrainType::SNOW_MOUNTAIN, {TerrainType::SNOW, TerrainType::ROCK_LARGE}}
+            {TerrainType::SNOW_MOUNTAIN, {TerrainType::SNOW, TerrainType::ROCK_LARGE}},
+            // 湖泊
+            {TerrainType::LAKE, {TerrainType::WATER}},
+            // 河流
+            {TerrainType::RIVER, {TerrainType::WATER, TerrainType::REEDS}},
         };
         
         for (const auto& rule : defaultRules) {
@@ -387,16 +391,16 @@ private:
                                        const WFCParams& params) {
         // 简化的WFC实现
         TileMap decorationMap(width * height, 0);
-        
+
         // 先基于地形分配基础装饰
         for (uint32_t i = 0; i < decorationMap.size(); i++) {
             TerrainType terrain = static_cast<TerrainType>(terrainMap[i]);
             decorationMap[i] = (uint32_t)getBaseDecoration(terrain, heightmap[i]);
         }
-        
+
         // 应用WFC风格的局部一致性
         applyLocalConsistency(decorationMap, width, height, params);
-        
+
         return decorationMap;
     }
     
@@ -546,69 +550,69 @@ private:
         cell.collapsedType = pattern.tiles[pattern.width * pattern.height / 2]; // 中心类型
         cell.possiblePatterns = {chosenPattern};
     }
-    
+
     void propagateConstraints(std::vector<WFCCell>& cells,
                              uint32_t width, uint32_t height,
                              uint32_t changedCell,
                              const WFCParams& params) {
         std::queue<uint32_t> propagationQueue;
         propagationQueue.push(changedCell);
-        
+
         while (!propagationQueue.empty()) {
             uint32_t current = propagationQueue.front();
             propagationQueue.pop();
-            
+
             uint32_t x = current % width;
             uint32_t y = current / width;
-            
+
             // 检查邻居
             std::vector<std::pair<int, int>> directions;
             directions.push_back({-1, 0}); // 左
             directions.push_back({1, 0});  // 右
             directions.push_back({0, -1}); // 上
             directions.push_back({0, 1});  // 下
-            
+
             if (params.propagateDiagonally) {
                 directions.push_back({-1, -1}); // 左上
                 directions.push_back({-1, 1});  // 左下
                 directions.push_back({1, -1});  // 右上
                 directions.push_back({1, 1});   // 右下
             }
-            
+
             for (const auto& dir : directions) {
                 int nx = x + dir.first;
                 int ny = y + dir.second;
-                
+
                 if (nx >= 0 && nx < static_cast<int>(width) &&
                     ny >= 0 && ny < static_cast<int>(height)) {
                     uint32_t neighborIdx = ny * width + nx;
-                    
+
                     if (cells[neighborIdx].collapsed) continue;
-                    
+
                     // 保存旧的可能性
                     std::set<uint32_t> oldPossible = cells[neighborIdx].possiblePatterns;
-                    
+
                     // 根据当前单元格限制邻居的可能性
                     std::set<uint32_t> newPossible;
                     for (uint32_t neighborPattern : cells[neighborIdx].possiblePatterns) {
                         bool compatible = false;
-                        
+
                         for (uint32_t currentPattern : cells[current].possiblePatterns) {
                             if (patternsCompatible(currentPattern, neighborPattern, dir.first, dir.second)) {
                                 compatible = true;
                                 break;
                             }
                         }
-                        
+
                         if (compatible) {
                             newPossible.insert(neighborPattern);
                         }
                     }
-                    
+
                     if (newPossible != oldPossible) {
                         cells[neighborIdx].possiblePatterns = newPossible;
                         cells[neighborIdx].entropy = cells[neighborIdx].calculateEntropy();
-                        
+
                         if (!newPossible.empty()) {
                             propagationQueue.push(neighborIdx);
                         } else if (params.failOnContradiction) {
@@ -645,22 +649,32 @@ private:
     TerrainType getBaseDecoration(TerrainType terrain, float height) {
         // 基于地形和高度返回基础装饰
         switch (terrain) {
-            case TerrainType::FOREST:
-                return height > 0.6f ? TerrainType::TREE_DENSE : TerrainType::TREE_SPARSE;
-            case TerrainType::MOUNTAIN:
-                return height > 0.8f ? TerrainType::ROCK_LARGE : TerrainType::ROCK_SMALL;
-            case TerrainType::HILL:
-                return TerrainType::ROCK_SMALL;
-            case TerrainType::PLAIN:
-                return TerrainType::GRASS;
-            case TerrainType::DESERT:
-                return TerrainType::SAND;
-            case TerrainType::SWAMP:
-                return TerrainType::BUSH;
-            case TerrainType::SNOW_MOUNTAIN:
-                return TerrainType::SNOW;
-            default:
-                return TerrainType::GRASS;
+        case TerrainType::FOREST:
+            return height > 0.6f ? TerrainType::TREE_DENSE : TerrainType::TREE_SPARSE;
+        case TerrainType::MOUNTAIN:
+            return height > 0.8f ? TerrainType::ROCK_LARGE : TerrainType::ROCK_SMALL;
+        case TerrainType::HILL:
+            return TerrainType::ROCK_SMALL;
+        case TerrainType::PLAIN:
+            return TerrainType::GRASS;
+        case TerrainType::DESERT:
+            return TerrainType::SAND;
+        case TerrainType::SWAMP:
+            return TerrainType::BUSH;
+        case TerrainType::SNOW_MOUNTAIN:
+            return TerrainType::SNOW;
+        case TerrainType::LAKE:
+            return TerrainType::WATER;
+        case TerrainType::RIVER:
+            return TerrainType::WATER;
+        case TerrainType::DEEP_OCEAN:
+        case TerrainType::SHALLOW_OCEAN:
+            return TerrainType::WATER;
+        case TerrainType::COAST:
+        case TerrainType::BEACH:
+            return TerrainType::SAND;
+        default:
+            return TerrainType::GRASS;
         }
     }
     

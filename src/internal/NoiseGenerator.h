@@ -43,6 +43,8 @@ public:
                        uint32_t radius = 1);
     void applyTerracing(HeightMap& heightmap, uint32_t width, uint32_t height,
                        uint32_t levels);
+
+    float applyPerlinNoise(float x, float y, float z = 0);
     
 private:
     class Impl;
