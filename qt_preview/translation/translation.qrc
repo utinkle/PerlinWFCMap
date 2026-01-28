@@ -1,0 +1,6 @@
+<RCC>
+    <qresource prefix="/">
+        <file>mapgenerator_en.qm</file>
+        <file>mapgenerator_zh_CN.qm</file>
+    </qresource>
+</RCC>
