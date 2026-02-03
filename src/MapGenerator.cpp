@@ -10,20 +10,21 @@ namespace MapGenerator {
 
 class MapGenerator::Impl {
 public:
-    Impl() : m_internal(std::make_unique<internal::MapGeneratorInternal>(12345)) {
+    Impl() {
     }
     
     std::shared_ptr<MapData> generateMap(const MapConfig& config) {
-        return m_internal->generate(config);
+        std::unique_ptr<internal::MapGeneratorInternal> internal = std::make_unique<internal::MapGeneratorInternal>(config.seed);
+        return internal->generate(config);
     }
     
     std::vector<std::shared_ptr<MapData>> generateBatch(
         const MapConfig& baseConfig, uint32_t count) {
-        return m_internal->generateBatch(baseConfig, count);
+        std::unique_ptr<internal::MapGeneratorInternal> internal = std::make_unique<internal::MapGeneratorInternal>(baseConfig.seed);
+        return internal->generateBatch(baseConfig, count);
     }
     
 private:
-    std::unique_ptr<internal::MapGeneratorInternal> m_internal;
 };
 
 // 添加辅助函数
