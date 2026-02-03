@@ -65,6 +65,49 @@ public:
     uint32_t getThreadCount() const {
         return static_cast<uint32_t>(m_workers.size());
     }
+
+    void setThreadCount(int threadCount) {
+        // 停止现有工作线程
+        {
+            std::unique_lock<std::mutex> lock(m_mutex);
+            m_stop = true;
+        }
+        m_condition.notify_all();
+        
+        for (auto& worker : m_workers) {
+            if (worker.joinable()) {
+                worker.join();
+            }
+        }
+        
+        // 重新初始化
+        m_stop = false;
+        m_workers.clear();
+        m_workers.reserve(threadCount);
+        
+        for (uint32_t i = 0; i < threadCount; ++i) {
+            m_workers.emplace_back([this] {
+                while (true) {
+                    std::function<void()> task;
+                    {
+                        std::unique_lock<std::mutex> lock(m_mutex);
+                        m_condition.wait(lock, [this] {
+                            return m_stop || !m_tasks.empty();
+                        });
+                        
+                        if (m_stop && m_tasks.empty()) {
+                            return;
+                        }
+                        
+                        task = std::move(m_tasks.front());
+                        m_tasks.pop();
+                    }
+                    
+                    task();
+                }
+            });
+        }
+    }
     
 private:
     std::vector<std::thread> m_workers;
@@ -84,7 +127,13 @@ void ThreadPool::enqueue(std::function<void()> task) {
     m_impl->enqueue(std::move(task));
 }
 
-uint32_t ThreadPool::getThreadCount() const {
+void ThreadPool::setThreadCount(uint32_t threadCount)
+{
+    m_impl->setThreadCount(threadCount);
+}
+
+uint32_t ThreadPool::getThreadCount() const
+{
     return m_impl->getThreadCount();
 }
 

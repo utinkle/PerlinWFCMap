@@ -146,36 +146,36 @@ void testBatchGeneration() {
     }
 }
 
-// 测试WFC算法
-void testWFCAlgorithm() {
-    std::cout << "\n=== Testing WFC Algorithm Variations ===\n";
+// // 测试WFC算法
+// void testWFCAlgorithm() {
+//     std::cout << "\n=== Testing WFC Algorithm Variations ===\n";
     
-    MapGenerator::MapGenerator generator;
+//     MapGenerator::MapGenerator generator;
     
-    MapGenerator::MapConfig config;
-    config.width = 128;
-    config.height = 128;
-    config.seed = 9999;
+//     MapGenerator::MapConfig config;
+//     config.width = 128;
+//     config.height = 128;
+//     config.seed = 9999;
     
-    // 测试不同WFC参数
-    std::vector<std::pair<uint32_t, std::string>> wfcTests = {
-        {100, "wfc_100_iter"},
-        {500, "wfc_500_iter"},
-        {1000, "wfc_1000_iter"},
-        {5000, "wfc_5000_iter"}
-    };
+//     // 测试不同WFC参数
+//     std::vector<std::pair<uint32_t, std::string>> wfcTests = {
+//         {100, "wfc_100_iter"},
+//         {500, "wfc_500_iter"},
+//         {1000, "wfc_1000_iter"},
+//         {5000, "wfc_5000_iter"}
+//     };
     
-    for (const auto& test : wfcTests) {
-        config.wfcIterations = test.first;
+//     // for (const auto& test : wfcTests) {
+//     //     config.wfcIterations = test.first;
         
-        std::cout << "Testing WFC with " << test.first << " iterations...\n";
-        auto map = generator.generateMap(config);
+//     //     std::cout << "Testing WFC with " << test.first << " iterations...\n";
+//     //     auto map = generator.generateMap(config);
         
-        std::string filename = test.second + ".ppm";
-        generator.exportToPPM(*map, filename, true, 2);
-        std::cout << "Exported to " << filename << "\n";
-    }
-}
+//     //     std::string filename = test.second + ".ppm";
+//     //     generator.exportToPPM(*map, filename, true, 2);
+//     //     std::cout << "Exported to " << filename << "\n";
+//     // }
+// }
 
 // 测试噪声算法
 void testNoiseAlgorithms() {
@@ -504,7 +504,7 @@ int main() {
         testPresets();
         testCustomConfig();
         testBatchGeneration();
-        testWFCAlgorithm();
+        // testWFCAlgorithm();
         testNoiseAlgorithms();
         testAdvancedExport();
         testMultipleExportFormats();

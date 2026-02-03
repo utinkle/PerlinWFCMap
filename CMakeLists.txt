@@ -12,7 +12,7 @@ option(BUILD_QT_PREVIEW "Build Qt preview application" ON)
 set(INTERNAL_HEADERS
     src/internal/CommonTypes.h
     src/internal/NoiseGenerator.h
-    src/internal/WFCGenerator.h
+    # src/internal/WFCGenerator.h
     src/internal/MapGeneratorInternal.h
     src/internal/ThreadPool.h
 )
@@ -22,8 +22,10 @@ set(SOURCES
     src/MapGenerator.cpp
     src/internal/MapGeneratorInternal.cpp
     src/internal/NoiseGenerator.cpp
-    src/internal/WFCGenerator.cpp
+    # src/internal/WFCGenerator.cpp
     src/internal/ThreadPool.cpp
+    src/internal/ParallelUtils.h
+    src/internal/ParallelUtils.cpp
 )
 
 # 主库

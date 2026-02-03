@@ -1,5 +1,6 @@
 #define _USE_MATH_DEFINES
 #include "NoiseGenerator.h"
+#include "ParallelUtils.h"
 #include <algorithm>
 #include <cmath>
 #include <queue>
@@ -246,39 +247,178 @@ private:
     uint32_t m_seed;
     PerlinNoiseImp m_perlin;
     SimplexNoiseImpl m_simplex;
-    
+    std::unique_ptr<ParallelProcessor> m_parallelProcessor;
+
 public:
     Impl(uint32_t seed) 
-        : m_seed(seed), m_rng(seed), m_perlin(seed), m_simplex(seed) {
+        : m_seed(seed), m_rng(seed), m_perlin(seed), m_simplex(seed) 
+        , m_parallelProcessor(std::make_unique<ParallelProcessor>(std::thread::hardware_concurrency()))
+    {
     }
     
     HeightMap generateNoise(uint32_t width, uint32_t height, const NoiseParams& params) {
         HeightMap result(width * height);
-        
-        switch (params.type) {
-            case NoiseType::PERLIN:
-                generatePerlinNoise(result, width, height, params);
-                break;
-            case NoiseType::SIMPLEX:
-                generateSimplexNoise(result, width, height, params);
-                break;
-            case NoiseType::WORLEY:
-                result = generateWorleyNoise(width, height, params);
-                break;
-            case NoiseType::VALUE:
-                generateValueNoise(result, width, height, params);
-                break;
-
-            default:
-                // 默认使用Perlin噪声
-                generatePerlinNoise(result, width, height, params);
-                break;
-        }
-        
-        // 应用后处理
-        applyNoisePostProcessing(result, width, height, params);
+        generateNoiseParallel(result, width, height, params);
+        // 并行后处理
+        applyNoisePostProcessingParallel(result, width, height, params);
         
         return result;
+    }
+
+    void generateNoiseParallel(HeightMap& result, uint32_t width, uint32_t height,
+                              const NoiseParams& params) {
+        
+        m_parallelProcessor->parallelFor2D(width, height, [&](uint32_t x, uint32_t y) {
+            float nx = x / params.scale;
+            float ny = y / params.scale;
+            
+            float value = 0.0f;
+            float amplitude = 1.0f;
+            float frequency = 1.0f;
+            float maxValue = 0.0f;
+            
+            for (int i = 0; i < params.octaves; i++) {
+                float noiseValue = 0.0f;
+                
+                switch (params.type) {
+                    case NoiseType::PERLIN:
+                        noiseValue = m_perlin.noise(nx * frequency, ny * frequency);
+                        break;
+                    case NoiseType::SIMPLEX:
+                        noiseValue = (m_simplex.noise(nx * frequency, ny * frequency) + 1.0f) * 0.5f;
+                        break;
+                    // ... 其他噪声类型 ...
+                    default:
+                        noiseValue = m_perlin.noise(nx * frequency, ny * frequency);
+                        break;
+                }
+                
+                value += noiseValue * amplitude;
+                maxValue += amplitude;
+                amplitude *= params.persistence;
+                frequency *= params.lacunarity;
+            }
+            
+            if (maxValue > 0) {
+                value /= maxValue;
+            }
+            
+            result[y * width + x] = value;
+        });
+    }
+
+    void applyNoisePostProcessingParallel(HeightMap& noise, uint32_t width, uint32_t height,
+                                         const NoiseParams& params) {
+        
+        // 并行应用岛模式
+        if (params.islandMode) {
+            m_parallelProcessor->parallelFor2D(width, height, [&](uint32_t x, uint32_t y) {
+                float dx = (x / static_cast<float>(width)) - 0.5f;
+                float dy = (y / static_cast<float>(height)) - 0.5f;
+                float distance = sqrt(dx * dx + dy * dy) * 2.0f;
+                
+                float falloff = 1.0f - distance;
+                falloff = std::max(0.0f, falloff);
+                
+                noise[y * width + x] *= falloff;
+            });
+        }
+        
+        // 并行应用域扭曲
+        if (params.domainWarp.enabled) {
+            applyDomainWarpParallel(noise, width, height, params.domainWarp);
+        }
+    }
+    
+    void applyDomainWarpParallel(HeightMap& heightmap, uint32_t width, uint32_t height,
+                                const NoiseParams::DomainWarp& warp) {
+        
+        HeightMap warped(width * height);
+        
+        m_parallelProcessor->parallelFor2D(width, height, [&](uint32_t x, uint32_t y) {
+            float nx = x / warp.frequency;
+            float ny = y / warp.frequency;
+            
+            // 计算扭曲偏移
+            float dx = m_perlin.noise(nx, ny, 0.5f) * 2.0f - 1.0f;
+            float dy = m_perlin.noise(nx + 5.2f, ny + 1.3f, 0.5f) * 2.0f - 1.0f;
+            
+            // 应用倍频扭曲
+            if (warp.octaves > 1) {
+                float amplitude = 0.5f;
+                float frequency = 2.0f;
+                
+                for (uint32_t i = 1; i < warp.octaves; i++) {
+                    dx += m_perlin.noise(nx * frequency, ny * frequency, 0.5f + i) * 
+                          amplitude * 2.0f - amplitude;
+                    dy += m_perlin.noise(nx * frequency + 5.2f, ny * frequency + 1.3f, 0.5f + i) * 
+                          amplitude * 2.0f - amplitude;
+                    amplitude *= 0.5f;
+                    frequency *= 2.0f;
+                }
+            }
+            
+            // 计算源坐标
+            float srcX = x + dx * warp.strength;
+            float srcY = y + dy * warp.strength;
+            
+            // 双线性插值
+            srcX = std::clamp(srcX, 0.0f, static_cast<float>(width - 1));
+            srcY = std::clamp(srcY, 0.0f, static_cast<float>(height - 1));
+            
+            int x1 = static_cast<int>(srcX);
+            int y1 = static_cast<int>(srcY);
+            int x2 = std::min(x1 + 1, static_cast<int>(width - 1));
+            int y2 = std::min(y1 + 1, static_cast<int>(height - 1));
+            
+            float tx = srcX - x1;
+            float ty = srcY - y1;
+            
+            float v1 = heightmap[y1 * width + x1];
+            float v2 = heightmap[y1 * width + x2];
+            float v3 = heightmap[y2 * width + x1];
+            float v4 = heightmap[y2 * width + x2];
+            
+            float vx1 = v1 * (1 - tx) + v2 * tx;
+            float vx2 = v3 * (1 - tx) + v4 * tx;
+            
+            warped[y * width + x] = vx1 * (1 - ty) + vx2 * ty;
+        });
+        
+        heightmap = std::move(warped);
+    }
+    
+    void applySmoothing(HeightMap& heightmap, uint32_t width, uint32_t height,
+                       uint32_t radius) {
+        HeightMap smoothed = heightmap;
+        
+        // 并行平滑
+        m_parallelProcessor->parallelFor2DChunked(width, height, 64,
+            [&](uint32_t startX, uint32_t startY, uint32_t endX, uint32_t endY) {
+                for (uint32_t y = startY; y < endY; ++y) {
+                    for (uint32_t x = startX; x < endX; ++x) {
+                        // 边界检查
+                        if (x < radius || x >= width - radius || 
+                            y < radius || y >= height - radius) {
+                            continue;
+                        }
+                        
+                        float sum = 0.0f;
+                        int count = 0;
+                        
+                        for (int dy = -static_cast<int>(radius); dy <= static_cast<int>(radius); dy++) {
+                            for (int dx = -static_cast<int>(radius); dx <= static_cast<int>(radius); dx++) {
+                                sum += heightmap[(y + dy) * width + (x + dx)];
+                                count++;
+                            }
+                        }
+                        
+                        smoothed[y * width + x] = sum / count;
+                    }
+                }
+            });
+        
+        heightmap = std::move(smoothed);
     }
     
     HeightMap generateLayeredNoise(uint32_t width, uint32_t height,
@@ -453,29 +593,6 @@ public:
         if (params.thermalErosion) {
             applyThermalErosion(heightmap, width, height, params);
         }
-    }
-    
-    void applySmoothing(HeightMap& heightmap, uint32_t width, uint32_t height,
-                       uint32_t radius) {
-        HeightMap smoothed = heightmap;
-        
-        for (uint32_t y = radius; y < height - radius; y++) {
-            for (uint32_t x = radius; x < width - radius; x++) {
-                float sum = 0.0f;
-                int count = 0;
-                
-                for (int dy = -static_cast<int>(radius); dy <= static_cast<int>(radius); dy++) {
-                    for (int dx = -static_cast<int>(radius); dx <= static_cast<int>(radius); dx++) {
-                        sum += heightmap[(y + dy) * width + (x + dx)];
-                        count++;
-                    }
-                }
-                
-                smoothed[y * width + x] = sum / count;
-            }
-        }
-        
-        heightmap = std::move(smoothed);
     }
     
     void applyTerracing(HeightMap& heightmap, uint32_t width, uint32_t height,

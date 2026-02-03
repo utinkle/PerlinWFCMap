@@ -313,16 +313,16 @@ void MapView::mouseMoveEvent(QMouseEvent *event)
         uint32_t idx = y * m_mapData->config.width + x;
         float height = m_mapData->heightMap[idx];
         auto terrain = static_cast<MapGenerator::TerrainType>(m_mapData->terrainMap[idx]);
-        auto decoration = static_cast<MapGenerator::TerrainType>(m_mapData->decorationMap[idx]);
+        // auto decoration = static_cast<MapGenerator::TerrainType>(m_mapData->decorationMap[idx]);
         
         QString tooltip = QString("X: %1, Y: %2\n"
                                  "Height: %3\n"
-                                 "Terrain: %4\n"
-                                 "Decoration: %5")
+                                 "Terrain: %4"
+                                 /*"Decoration: %5"*/)
                          .arg(x).arg(y)
                          .arg(height, 0, 'f', 3)
-                         .arg(MapGenerator::MapGenerator::getTerrainName(terrain).c_str())
-                         .arg(MapGenerator::MapGenerator::getTerrainName(decoration).c_str());
+                              .arg(MapGenerator::MapGenerator::getTerrainName(terrain).c_str());
+                         // .arg(MapGenerator::MapGenerator::getTerrainName(decoration).c_str());
         
         setToolTip(tooltip);
     }
@@ -429,21 +429,21 @@ void MapView::generateImage()
             case 3: // Composite map
                 {
                     auto terrain = static_cast<MapGenerator::TerrainType>(m_mapData->terrainMap[idx]);
-                    auto decoration = static_cast<MapGenerator::TerrainType>(m_mapData->decorationMap[idx]);
+                    // auto decoration = static_cast<MapGenerator::TerrainType>(m_mapData->decorationMap[idx]);
                     
                     QColor terrainColor = getTerrainColor(terrain);
-                    QColor decorationColor = getTerrainColor(decoration);
+                    // QColor decorationColor = getTerrainColor(decoration);
                     
-                    // Blend colors if decoration is not default grass
-                    if (decoration != MapGenerator::TerrainType::GRASS) {
-                        color = QColor(
-                            (terrainColor.red() + decorationColor.red()) / 2,
-                            (terrainColor.green() + decorationColor.green()) / 2,
-                            (terrainColor.blue() + decorationColor.blue()) / 2
-                        );
-                    } else {
+                    // // Blend colors if decoration is not default grass
+                    // if (decoration != MapGenerator::TerrainType::GRASS) {
+                    //     color = QColor(
+                    //         (terrainColor.red() + decorationColor.red()) / 2,
+                    //         (terrainColor.green() + decorationColor.green()) / 2,
+                    //         (terrainColor.blue() + decorationColor.blue()) / 2
+                    //     );
+                    // } else {
                         color = terrainColor;
-                    }
+                    // }
                 }
                 break;
                 

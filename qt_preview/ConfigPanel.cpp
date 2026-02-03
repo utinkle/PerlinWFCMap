@@ -319,9 +319,9 @@ MapGenerator::MapConfig ConfigPanel::getConfig() const
     config.temperature = static_cast<float>(m_temperatureSpin->value());
     config.humidity = static_cast<float>(m_humiditySpin->value());
     
-    config.wfcIterations = static_cast<uint32_t>(m_wfcIterationsSpin->value());
-    config.wfcEntropyWeight = static_cast<float>(m_wfcEntropyWeightSpin->value());
-    config.wfcEnableBacktracking = m_wfcBacktrackingCheck->isChecked();
+    // config.wfcIterations = static_cast<uint32_t>(m_wfcIterationsSpin->value());
+    // config.wfcEntropyWeight = static_cast<float>(m_wfcEntropyWeightSpin->value());
+    // config.wfcEnableBacktracking = m_wfcBacktrackingCheck->isChecked();
     
     config.threadCount = static_cast<uint32_t>(m_threadCountSpin->value());
     
@@ -354,9 +354,9 @@ void ConfigPanel::setConfig(const MapGenerator::MapConfig &config)
     m_temperatureSpin->setValue(config.temperature);
     m_humiditySpin->setValue(config.humidity);
     
-    m_wfcIterationsSpin->setValue(static_cast<int>(config.wfcIterations));
-    m_wfcEntropyWeightSpin->setValue(config.wfcEntropyWeight);
-    m_wfcBacktrackingCheck->setChecked(config.wfcEnableBacktracking);
+    // m_wfcIterationsSpin->setValue(static_cast<int>(config.wfcIterations));
+    // m_wfcEntropyWeightSpin->setValue(config.wfcEntropyWeight);
+    // m_wfcBacktrackingCheck->setChecked(config.wfcEnableBacktracking);
     
     m_threadCountSpin->setValue(static_cast<int>(config.threadCount));
     

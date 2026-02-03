@@ -22,20 +22,14 @@ public:
     
     // 分步骤生成
     HeightMap generateHeightmapOnly(const MapConfig& config);
-    TileMap generateTerrainOnly(const HeightMap& heightmap, 
+    TileMap generateTerrainOnly(const HeightMap& heightmap,
                                const MapConfig& config);
-    TileMap generateDecorationOnly(const HeightMap& heightmap,
-                                  const TileMap& terrainMap,
-                                  const MapConfig& config);
     
     // 高级功能
     void applyErosion(HeightMap& heightmap, const MapConfig& config,
                       const ErosionParams& params);
     void generateRivers(TileMap& terrainMap, const HeightMap& heightmap,
                        const MapConfig& config, const RiverParams& params);
-    void addDecorations(TileMap& decorationMap, const TileMap& terrainMap,
-                       const HeightMap& heightmap, const MapConfig& config,
-                       const DecorationParams& params);
     
 private:
     class Impl;

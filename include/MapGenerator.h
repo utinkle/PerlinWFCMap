@@ -15,6 +15,7 @@
 #include <vector>
 #include <string>
 #include <memory>
+#include <thread>
 
 namespace MapGenerator {
 
@@ -91,13 +92,8 @@ struct MG_EXPORT MapConfig {
     float temperature = 0.5f;
     float humidity = 0.5f;
     
-    // WFC参数
-    uint32_t wfcIterations = 1000;
-    float wfcEntropyWeight = 0.1f;
-    bool wfcEnableBacktracking = true;
-    
     // 性能参数
-    uint32_t threadCount = 4;
+    uint32_t threadCount = std::thread::hardware_concurrency();
     
     // 预设
     enum class Preset {

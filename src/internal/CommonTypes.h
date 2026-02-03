@@ -52,29 +52,6 @@ struct NoiseParams {
     std::vector<NoiseLayer> layers;
 };
 
-// WFC参数
-struct WFCParams {
-    uint32_t iterations = 1000;
-    float entropyWeight = 0.1f;
-    bool enableBacktracking = true;
-    uint32_t maxBacktrackDepth = 100;
-    float temperature = 1.0f; // 模拟退火温度
-    bool useWeights = true;
-    bool propagateDiagonally = false;
-    uint32_t patternSize = 2; // NxN模式大小
-    
-    // 高级参数
-    bool allowRotations = true;
-    bool allowReflections = false;
-    float minEntropyThreshold = 0.001f;
-    uint32_t superpositionSize = 10; // 叠加态数量
-    bool useManualRules = false;
-    
-    // 输出控制
-    bool failOnContradiction = true;
-    uint32_t retryCount = 3;
-};
-
 // 侵蚀参数
 struct ErosionParams {
     uint32_t iterations = 10;

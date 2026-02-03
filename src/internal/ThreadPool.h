@@ -33,6 +33,8 @@ public:
     }
 
     void enqueue(std::function<void()> task);
+
+    void setThreadCount(uint32_t threadCount);
     uint32_t getThreadCount() const;
 
 private:
